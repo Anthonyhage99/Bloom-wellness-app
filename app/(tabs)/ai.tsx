@@ -1,169 +1,343 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
   Keyboard,
+  ScrollView,
+  StyleSheet,
+  TextInput,
   TouchableWithoutFeedback,
+  View,
 } from "react-native";
-import { useTheme } from "../context/ThemeContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import {
+  BloomButton,
+  BloomCard,
+  BloomChip,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+
+const QUICK_TOPICS = ["Water", "Food", "Fitness", "Sleep", "Stress", "Focus"];
+const QUICK_PROMPTS = [
+  "What should I eat before the gym?",
+  "Give me a quick workout",
+  "I feel stressed",
+  "How can I sleep better?",
+];
+const COACH_HISTORY_KEY = "bloom_ai_coach_history";
+
+type CoachMode = "Gentle" | "Strict" | "Motivational";
+type CoachHistoryItem = {
+  question: string;
+  answer: string;
+};
 
 export default function AiScreen() {
-  const { darkMode } = useTheme();
-
-  const [goal, setGoal] = useState("");
+  const colors = useBloomColors();
+  const [question, setQuestion] = useState("");
   const [response, setResponse] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<CoachMode>("Gentle");
+  const [history, setHistory] = useState<CoachHistoryItem[]>([]);
 
-  const background = darkMode ? "#000000" : "#F5F7FB";
-  const cardBg = darkMode ? "#111111" : "#FFFFFF";
-  const titleColor = darkMode ? "#FFFFFF" : "#23404E";
-  const subtitleColor = darkMode ? "#A6A6A6" : "#66737D";
-  const inputBorder = darkMode ? "#444444" : "#CCD6DD";
-  const inputText = darkMode ? "#EEEEEE" : "#333333";
-  const placeholderColor = darkMode ? "#777777" : "#999999";
-  const resultBorder = darkMode ? "#4CAF50" : "#2E7D32";
-  const resultTextColor = darkMode ? "#EDEDED" : "#23404E";
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(COACH_HISTORY_KEY);
+        setHistory(raw ? JSON.parse(raw) : []);
+      } catch (e) {
+        console.log("Error loading AI Coach history", e);
+      }
+    })();
+  }, []);
 
-  async function getAiTips() {
-    Keyboard.dismiss(); // 👈 Auto-hide keyboard
+  async function getCoachTips() {
+    Keyboard.dismiss();
 
-    if (!goal.trim()) {
-      setResponse("Please type a goal first 🙂");
+    if (!question.trim()) {
+      setResponse(
+        "Ask me anything about food, fitness, water, sleep, stress, focus, or healthy routines."
+      );
       return;
     }
 
-    // Safety filter
+    const lowered = question.toLowerCase();
     const forbidden = [
-      "gun","weapon","shoot","kill","drugs","suicide","sex","porn",
-      "hack","fraud","scam","casino","gamble","bet"
+      "gun",
+      "weapon",
+      "shoot",
+      "kill",
+      "drugs",
+      "suicide",
+      "sex",
+      "porn",
+      "hack",
+      "fraud",
+      "scam",
+      "casino",
+      "gamble",
+      "bet",
     ];
-    const lowered = goal.toLowerCase();
-    if (forbidden.some((w) => lowered.includes(w))) {
-      setResponse("🚫 Bloom AI can only help with healthy habits & self-care.");
+
+    if (forbidden.some((word) => lowered.includes(word))) {
+      setResponse("AI Coach can only help with healthy habits and self-care.");
       return;
     }
 
     setLoading(true);
-    setResponse("Bloom coach is thinking… 🤖⏳");
+    setResponse("Thinking of a simple next step...");
 
     setTimeout(() => {
+      const answer = generateAdvice(question, mode);
       setLoading(false);
-      setResponse(generateTip(goal));
-    }, 700);
+      setResponse(answer);
+      saveHistory(question, answer);
+    }, 450);
   }
 
-  function generateTip(input: string): string {
-    const g = input.toLowerCase();
+  async function saveHistory(prompt: string, answer: string) {
+    const next = [{ question: prompt.trim(), answer }, ...history].slice(0, 3);
+    setHistory(next);
+    try {
+      await AsyncStorage.setItem(COACH_HISTORY_KEY, JSON.stringify(next));
+    } catch (e) {
+      console.log("Error saving AI Coach history", e);
+    }
+  }
 
-    if (g.includes("sleep"))
-      return "😴 Try setting a fixed sleep schedule and avoiding screens 30 minutes before bed.";
+  function generateAdvice(input: string, selectedMode: CoachMode): string {
+    const text = input.toLowerCase();
+    const prefix =
+      selectedMode === "Gentle"
+        ? "Gentle coach:"
+        : selectedMode === "Strict"
+          ? "Strict coach:"
+          : "Motivational coach:";
+    const closer =
+      selectedMode === "Gentle"
+        ? "Keep it small and doable."
+        : selectedMode === "Strict"
+          ? "Do it today before you negotiate with yourself."
+          : "You can stack this win right now.";
 
-    if (g.includes("water") || g.includes("hydrate"))
-      return "💧 Drink one full glass of water when you wake up for an easy hydration win.";
+    if (matches(text, ["water", "hydrate", "hydration", "thirsty"])) {
+      return `Water advice. ${prefix} Drink a glass when you wake up, then take a few sips every time you switch tasks. If plain water is boring, add lemon, cucumber, or ice. ${closer}`;
+    }
 
-    if (g.includes("stress") || g.includes("anxiety"))
-      return "🧘 Take 3 deep slow breaths to quickly reduce your stress level.";
+    if (matches(text, ["food", "eat", "meal", "diet", "nutrition", "hungry"])) {
+      return `Food advice. ${prefix} Build meals around protein, fiber, and color. Example: eggs or chicken, rice or potatoes, and a fruit or vegetable. ${closer}`;
+    }
 
-    if (g.includes("gym") || g.includes("exercise"))
-      return "🏋️ Start small: 10 minutes of activity daily beats one big workout a week.";
+    if (matches(text, ["snack", "craving", "sugar", "chips"])) {
+      return `Snack advice. ${prefix} Try a snack with protein or fiber first: Greek yogurt, nuts, fruit, eggs, or a turkey sandwich. ${closer}`;
+    }
 
-    if (g.includes("focus") || g.includes("study"))
-      return "📚 Try a 25min focus + 5min break cycle. It boosts productivity.";
+    if (matches(text, ["fitness", "gym", "workout", "exercise", "run", "lift"])) {
+      return `Fitness advice. ${prefix} Do 10 minutes today: walk, stretch, push-ups, or one easy gym circuit. Consistency beats destroying yourself once a week. ${closer}`;
+    }
 
-    return "🌱 Pick one tiny daily action related to your goal. Small steps build habits fast.";
+    if (matches(text, ["sleep", "tired", "bed", "wake", "insomnia"])) {
+      return `Sleep advice. ${prefix} Pick one wind-down cue tonight. Dim lights, put your phone away, and do the same 10-minute routine before bed. ${closer}`;
+    }
+
+    if (matches(text, ["stress", "anxiety", "overwhelmed", "worried"])) {
+      return `Stress advice. ${prefix} Do a 60-second reset. Inhale for 4, hold for 2, exhale for 6. Then write one thing you can control right now and do only that first. ${closer}`;
+    }
+
+    if (matches(text, ["focus", "study", "homework", "productive", "procrastinate"])) {
+      return `Focus advice. ${prefix} Set a 25-minute timer, choose one task, and put your phone out of reach. When the timer ends, take a real 5-minute break. ${closer}`;
+    }
+
+    if (matches(text, ["skin", "skincare", "face", "acne"])) {
+      return `Skincare advice. ${prefix} Keep the routine boring and repeatable: gentle cleanser, moisturizer, and sunscreen in the morning. Do not add five new products at once. ${closer}`;
+    }
+
+    if (matches(text, ["habit", "routine", "consistent", "discipline"])) {
+      return `Habit advice. ${prefix} Make the habit smaller until it feels almost too easy. Two minutes daily is better than a huge plan you avoid. Attach it to something you already do. ${closer}`;
+    }
+
+    return `AI Coach answer. ${prefix} Choose one healthy action that takes under two minutes and do it today. Ask about water, food, fitness, sleep, stress, focus, or routines for more specific advice. ${closer}`;
+  }
+
+  function matches(text: string, words: string[]) {
+    return words.some((word) => text.includes(word));
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: background }]}>
+    <BloomScreen>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView
-          contentContainerStyle={styles.container}
+          contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.title, { color: titleColor }]}>AI Suggestions 🤖</Text>
-          <Text style={[styles.subtitle, { color: subtitleColor }]}>
-            Tell Bloom what you want to improve.
-          </Text>
+          <BloomText variant="hero">AI Coach</BloomText>
+          <BloomText muted style={styles.subtitle}>
+            Ask for a small next step in food, fitness, sleep, stress, water,
+            or focus.
+          </BloomText>
 
-          <TextInput
-            style={[
-              styles.input,
-              { borderColor: inputBorder, backgroundColor: cardBg, color: inputText },
-            ]}
-            placeholder="Example: Improve my sleep + drink more water"
-            placeholderTextColor={placeholderColor}
-            value={goal}
-            onChangeText={setGoal}
-            multiline
-            blurOnSubmit
-            returnKeyType="done"
-            onSubmitEditing={Keyboard.dismiss}
-          />
+          <BloomCard>
+            <BloomText variant="section">What do you want help with?</BloomText>
+            <BloomText muted style={styles.cardCopy}>
+              {
+                'Try questions like "How can I drink more water?", "What should I eat before the gym?", or "How do I focus better?"'
+              }
+            </BloomText>
 
-          <TouchableOpacity
-            style={[styles.button, loading && { opacity: 0.6 }]}
-            onPress={getAiTips}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Thinking…" : "Get Tips"}
-            </Text>
-          </TouchableOpacity>
+            <View style={styles.quickRow}>
+              {QUICK_TOPICS.map((item) => (
+                <BloomChip
+                  key={item}
+                  label={item}
+                  active={question.toLowerCase().includes(item.toLowerCase())}
+                  onPress={() => setQuestion(item)}
+                />
+              ))}
+            </View>
 
-          {response !== "" && (
-            <ScrollView
+            <BloomText variant="label" style={styles.modeLabel}>
+              Coach mood
+            </BloomText>
+            <View style={styles.quickRow}>
+              {(["Gentle", "Strict", "Motivational"] as CoachMode[]).map(
+                (item) => (
+                  <BloomChip
+                    key={item}
+                    label={item}
+                    active={mode === item}
+                    onPress={() => setMode(item)}
+                  />
+                )
+              )}
+            </View>
+
+            <BloomText variant="label" style={styles.modeLabel}>
+              Quick prompts
+            </BloomText>
+            <View style={styles.promptStack}>
+              {QUICK_PROMPTS.map((prompt) => (
+                <BloomButton
+                  key={prompt}
+                  variant="secondary"
+                  style={styles.promptButton}
+                  onPress={() => setQuestion(prompt)}
+                >
+                  {prompt}
+                </BloomButton>
+              ))}
+            </View>
+
+            <BloomText variant="label" style={styles.inputLabel}>
+              Your question
+            </BloomText>
+            <TextInput
               style={[
-                styles.resultBox,
-                { backgroundColor: cardBg, borderColor: resultBorder },
+                styles.input,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceMuted,
+                  color: colors.text,
+                },
               ]}
+              placeholder="Ask about water, meals, workouts, sleep, stress..."
+              placeholderTextColor={colors.muted}
+              value={question}
+              onChangeText={setQuestion}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <BloomButton
+              style={styles.button}
+              onPress={getCoachTips}
+              disabled={loading}
             >
-              <Text style={[styles.resultText, { color: resultTextColor }]}>
-                {response}
-              </Text>
-            </ScrollView>
-          )}
+              {loading ? "Thinking..." : "Ask AI Coach"}
+            </BloomButton>
+          </BloomCard>
+
+          {response ? (
+            <BloomCard muted style={styles.responseCard}>
+              <BloomText variant="label" muted>
+                Coach note
+              </BloomText>
+              <BloomText style={styles.responseText}>{response}</BloomText>
+            </BloomCard>
+          ) : null}
+
+          {history.length > 0 ? (
+            <BloomCard style={styles.historyCard}>
+              <BloomText variant="section">Recent coach notes</BloomText>
+              {history.map((item, index) => (
+                <View key={`${item.question}-${index}`} style={styles.historyItem}>
+                  <BloomText variant="label">{item.question}</BloomText>
+                  <BloomText muted variant="small">
+                    {item.answer}
+                  </BloomText>
+                </View>
+              ))}
+            </BloomCard>
+          ) : null}
         </ScrollView>
       </TouchableWithoutFeedback>
-    </SafeAreaView>
+    </BloomScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 32,
-    paddingBottom: 40,
+  content: {
+    paddingBottom: 90,
   },
-  title: { fontSize: 26, fontWeight: "700", marginLeft: 16 },
-  subtitle: { marginTop: 4, marginBottom: 16, marginLeft: 16 },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    minHeight: 80,
-    textAlignVertical: "top",
-    fontSize: 15,
-    marginBottom: 12,
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 16,
   },
-  button: {
-    marginTop: 12,
-    backgroundColor: "#2E7D32",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
+  cardCopy: {
+    marginTop: 6,
   },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  resultBox: {
+  quickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
+  },
+  modeLabel: {
     marginTop: 16,
+  },
+  promptStack: {
+    gap: 8,
+    marginTop: 10,
+  },
+  promptButton: {
+    minHeight: 42,
+  },
+  inputLabel: {
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  input: {
+    minHeight: 116,
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
+    fontSize: 15,
+    lineHeight: 21,
   },
-  resultText: { fontSize: 15, lineHeight: 22 },
+  button: {
+    marginTop: 16,
+  },
+  responseCard: {
+    marginTop: 14,
+  },
+  responseText: {
+    marginTop: 6,
+  },
+  historyCard: {
+    marginTop: 14,
+  },
+  historyItem: {
+    marginTop: 12,
+  },
 });

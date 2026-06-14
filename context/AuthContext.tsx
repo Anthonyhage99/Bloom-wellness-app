@@ -6,7 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
-import { auth } from "../../firebaseConfig";
+
+import { auth } from "@/firebaseConfig";
 
 type AuthContextType = {
   user: User | null;
@@ -38,17 +39,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signIn(email: string, password: string) {
     await signInWithEmailAndPassword(auth, email, password);
-    // onAuthStateChanged will fire and set user
   }
 
   async function signUp(email: string, password: string) {
     await createUserWithEmailAndPassword(auth, email, password);
-    // onAuthStateChanged will fire and set user
   }
 
   async function logout() {
     await signOut(auth);
-    // onAuthStateChanged will set user to null for us
   }
 
   return (

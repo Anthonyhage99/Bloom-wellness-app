@@ -1,22 +1,21 @@
-import React, { useEffect, useState, useCallback } from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, StyleSheet, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 
-import { useTheme } from "../context/ThemeContext";
-import { useAuth } from "../context/AuthContext";
+import {
+  BloomCard,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+import { useAuth } from "@/context/AuthContext";
 
 const BASE_LOGS_KEY = "bloom_daily_logs";
 
 type DayLog = {
   id: string;
-  date: string;   // "YYYY-MM-DD"
+  date: string;
   mood: string;
   energy: string;
   stress: string;
@@ -24,44 +23,23 @@ type DayLog = {
 };
 
 export default function HistoryScreen() {
-  const { darkMode } = useTheme();
   const { user } = useAuth();
-
-  // per-user key, same pattern as LogScreen
+  const colors = useBloomColors();
   const logsKey = user ? `${BASE_LOGS_KEY}_${user.uid}` : BASE_LOGS_KEY;
 
   const [logs, setLogs] = useState<DayLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const background = darkMode ? "#000000" : "#F5F7FB";
-  const cardBg = darkMode ? "#111111" : "#FFFFFF";
-  const titleColor = darkMode ? "#FFFFFF" : "#23404E";
-  const subtitleColor = darkMode ? "#A6A6A6" : "#66737D";
-  const textColor = darkMode ? "#EDEDED" : "#23404E";
-  const subText = darkMode ? "#A0A0A0" : "#66737D";
-  const barTrack = darkMode ? "#222222" : "#E0E7EF";
-  const barFillMood = darkMode ? "#FFCA28" : "#FFB300";
-  const barFillEnergy = darkMode ? "#42A5F5" : "#1E88E5";
-  const barFillStress = darkMode ? "#EF5350" : "#E53935";
-
-  // load logs from storage
   const loadLogs = useCallback(async () => {
     try {
       setLoading(true);
       const raw = await AsyncStorage.getItem(logsKey);
-      if (raw) {
-        const parsed: DayLog[] = JSON.parse(raw);
-        // store sorted newest → oldest
-        const sorted = [...parsed].sort((a, b) => {
-          if (a.date === b.date) {
-            return b.id.localeCompare(a.id);
-          }
-          return b.date.localeCompare(a.date);
-        });
-        setLogs(sorted);
-      } else {
-        setLogs([]);
-      }
+      const parsed: DayLog[] = raw ? JSON.parse(raw) : [];
+      setLogs(
+        [...parsed].sort((a, b) =>
+          a.date === b.date ? b.id.localeCompare(a.id) : b.date.localeCompare(a.date)
+        )
+      );
     } catch (e) {
       console.log("Error loading history logs", e);
       setLogs([]);
@@ -70,198 +48,249 @@ export default function HistoryScreen() {
     }
   }, [logsKey]);
 
-  // 1) when component mounts / user changes
   useEffect(() => {
     loadLogs();
   }, [loadLogs]);
 
-  // 2) whenever History tab comes into focus
   useFocusEffect(
     useCallback(() => {
       loadLogs();
     }, [loadLogs])
   );
 
-  // 📊 ALL logs from the last 7 days (not grouped by date)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const last7Logs = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
 
-  const sevenDaysAgo = new Date(today);
-  sevenDaysAgo.setDate(today.getDate() - 6); // today + previous 6 days
-
-  function parseDate(dateStr: string) {
-    const d = new Date(dateStr);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-
-  const last7Logs = logs
-    .filter((log) => {
-      const d = parseDate(log.date);
+    return logs.filter((log) => {
+      const d = parseLocalDate(log.date);
       return d >= sevenDaysAgo && d <= today;
-    })
-    .sort((a, b) => {
-      if (a.date === b.date) {
-        // same day → newest log first
-        return b.id.localeCompare(a.id);
-      }
-      // newer dates first
-      return b.date.localeCompare(a.date);
     });
+  }, [logs]);
+
+  const averages = useMemo(() => {
+    const count = last7Logs.length || 1;
+    const sum = last7Logs.reduce(
+      (acc, log) => ({
+        mood: acc.mood + Number(log.mood || 0),
+        energy: acc.energy + Number(log.energy || 0),
+        stress: acc.stress + Number(log.stress || 0),
+      }),
+      { mood: 0, energy: 0, stress: 0 }
+    );
+
+    return {
+      mood: last7Logs.length ? (sum.mood / count).toFixed(1) : "-",
+      energy: last7Logs.length ? (sum.energy / count).toFixed(1) : "-",
+      stress: last7Logs.length ? (sum.stress / count).toFixed(1) : "-",
+    };
+  }, [last7Logs]);
+
+  const trendMessage = useMemo(() => {
+    if (last7Logs.length < 2) {
+      return "Save more check-ins to unlock trend feedback.";
+    }
+
+    const newest = last7Logs[0];
+    const oldest = last7Logs[last7Logs.length - 1];
+    const moodDelta = Number(newest.mood) - Number(oldest.mood);
+    const energyDelta = Number(newest.energy) - Number(oldest.energy);
+    const stressDelta = Number(newest.stress) - Number(oldest.stress);
+
+    if (stressDelta < 0) return "Your stress is trending lower. Nice progress.";
+    if (moodDelta > 0) return "Your mood is trending up this week.";
+    if (energyDelta > 0) return "Your energy is improving compared with earlier logs.";
+    return "Your week is steady. Keep checking in to spot patterns.";
+  }, [last7Logs]);
 
   const renderRow = ({ item }: { item: DayLog }) => {
     const mood = Number(item.mood) || 0;
     const energy = Number(item.energy) || 0;
     const stress = Number(item.stress) || 0;
 
-    const moodWidth = `${Math.min(10, Math.max(0, mood)) * 10}%`;
-    const energyWidth = `${Math.min(10, Math.max(0, energy)) * 10}%`;
-    const stressWidth = `${Math.min(10, Math.max(0, stress)) * 10}%`;
-
     return (
-      <View style={[styles.card, { backgroundColor: cardBg }]}>
-        <Text style={[styles.date, { color: textColor }]}>{item.date}</Text>
-        <Text style={[styles.line, { color: subText }]}>
-          Mood: <Text style={styles.bold}>{mood || "-"} / 10</Text> · Energy:{" "}
-          <Text style={styles.bold}>{energy || "-"} / 10</Text> · Stress:{" "}
-          <Text style={styles.bold}>{stress || "-"} / 10</Text>
-        </Text>
-
-        {/* mini bars */}
-        <View style={styles.barRow}>
-          <Text style={[styles.barLabel, { color: subText }]}>Mood</Text>
-          <View style={[styles.barTrack, { backgroundColor: barTrack }]}>
-            <View
-              style={[
-                styles.barFill,
-                { width: moodWidth, backgroundColor: barFillMood },
-              ]}
-            />
-          </View>
+      <BloomCard style={styles.logCard}>
+        <BloomText variant="section">{formatDate(item.date)}</BloomText>
+        <View style={styles.metricsRow}>
+          <Metric label="Mood" value={mood} color={colors.accent} />
+          <Metric label="Energy" value={energy} color={colors.primary} />
+          <Metric label="Stress" value={stress} color={colors.danger} />
         </View>
-
-        <View style={styles.barRow}>
-          <Text style={[styles.barLabel, { color: subText }]}>Energy</Text>
-          <View style={[styles.barTrack, { backgroundColor: barTrack }]}>
-            <View
-              style={[
-                styles.barFill,
-                { width: energyWidth, backgroundColor: barFillEnergy },
-              ]}
-            />
-          </View>
-        </View>
-
-        <View style={styles.barRow}>
-          <Text style={[styles.barLabel, { color: subText }]}>Stress</Text>
-          <View style={[styles.barTrack, { backgroundColor: barTrack }]}>
-            <View
-              style={[
-                styles.barFill,
-                { width: stressWidth, backgroundColor: barFillStress },
-              ]}
-            />
-          </View>
-        </View>
-
         {item.note ? (
-          <Text style={[styles.note, { color: subText }]}>{item.note}</Text>
+          <BloomText muted style={styles.note}>
+            {item.note}
+          </BloomText>
         ) : null}
-      </View>
+      </BloomCard>
     );
   };
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      <Text style={[styles.title, { color: titleColor }]}>
-        History & Insights 📈
-      </Text>
-      <Text style={[styles.subtitle, { color: subtitleColor }]}>
-        Last 7 days of mood, energy, and stress (all entries).
-      </Text>
+  function Metric({
+    label,
+    value,
+    color,
+  }: {
+    label: string;
+    value: number;
+    color: string;
+  }) {
+    return (
+      <View style={styles.metric}>
+        <BloomText muted variant="small">
+          {label}
+        </BloomText>
+        <BloomText variant="label">{value || "-"}/10</BloomText>
+        <BloomText muted variant="small">
+          {value ? scoreLabel(value) : "no score"}
+        </BloomText>
+        <View style={[styles.barTrack, { backgroundColor: colors.surfaceMuted }]}>
+          <View
+            style={[
+              styles.barFill,
+              { width: `${Math.min(Math.max(value, 0), 10) * 10}%`, backgroundColor: color },
+            ]}
+          />
+        </View>
+      </View>
+    );
+  }
 
-      {loading ? (
-        <Text style={{ marginTop: 16, marginLeft: 16, color: subtitleColor }}>
-          Loading history…
-        </Text>
-      ) : last7Logs.length === 0 ? (
-        <Text style={{ marginTop: 20, marginLeft: 16, color: subtitleColor }}>
-          No logs in the last 7 days. Save a log on the{" "}
-          <Text style={{ fontWeight: "600" }}>Log</Text> tab.
-        </Text>
-      ) : (
-        <FlatList
-          data={last7Logs}
-          keyExtractor={(item) => item.id}
-          renderItem={renderRow}
-          contentContainerStyle={{
-            paddingTop: 8,
-            paddingBottom: 80,
-          }}
-        />
-      )}
-    </SafeAreaView>
+  return (
+    <BloomScreen>
+      <FlatList
+        data={loading ? [] : last7Logs}
+        keyExtractor={(item) => item.id}
+        renderItem={renderRow}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <View>
+            <BloomText variant="hero">Your Patterns</BloomText>
+            <BloomText muted style={styles.subtitle}>
+              A calm look at your last 7 days.
+            </BloomText>
+
+            <BloomCard style={styles.summaryCard}>
+              <View style={styles.summaryRow}>
+                <Summary label="Mood" value={averages.mood} />
+                <Summary label="Energy" value={averages.energy} />
+                <Summary label="Stress" value={averages.stress} />
+              </View>
+            </BloomCard>
+
+            <BloomCard muted style={styles.trendCard}>
+              <BloomText variant="label" muted>
+                What Bloom notices
+              </BloomText>
+              <BloomText>{trendMessage}</BloomText>
+            </BloomCard>
+
+            {loading ? (
+              <BloomText muted style={styles.emptyText}>
+                Loading history...
+              </BloomText>
+            ) : last7Logs.length === 0 ? (
+              <BloomCard muted style={styles.emptyCard}>
+                <BloomText variant="section">No logs yet</BloomText>
+                <BloomText muted>
+                  Save a check-in on the Log tab to start seeing trends.
+                </BloomText>
+              </BloomCard>
+            ) : (
+              <BloomText variant="section" style={styles.sectionHeading}>
+                Recent reflections
+              </BloomText>
+            )}
+          </View>
+        }
+        contentContainerStyle={styles.content}
+      />
+    </BloomScreen>
   );
 }
 
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryItem}>
+      <BloomText variant="title">{value}</BloomText>
+      <BloomText muted variant="small">
+        Avg {label}
+      </BloomText>
+    </View>
+  );
+}
+
+function parseLocalDate(dateStr: string) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDate(dateStr: string) {
+  return parseLocalDate(dateStr).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function scoreLabel(value: number) {
+  if (value <= 3) return "low";
+  if (value <= 7) return "medium";
+  return "high";
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 32,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-    marginLeft: 16,
+  content: {
+    paddingBottom: 90,
   },
   subtitle: {
     marginTop: 4,
+    marginBottom: 16,
+  },
+  summaryCard: {
     marginBottom: 12,
-    marginLeft: 16,
   },
-  card: {
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 14,
-    marginHorizontal: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+  trendCard: {
+    marginBottom: 16,
   },
-  date: {
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  line: {
-    marginBottom: 8,
-    fontSize: 13,
-  },
-  bold: {
-    fontWeight: "600",
-  },
-  barRow: {
+  summaryRow: {
     flexDirection: "row",
-    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  summaryItem: {
+    flex: 1,
+  },
+  sectionHeading: {
+    marginBottom: 2,
+  },
+  emptyText: {
+    marginTop: 12,
+  },
+  emptyCard: {
     marginTop: 4,
   },
-  barLabel: {
-    width: 60,
-    fontSize: 12,
+  logCard: {
+    marginTop: 10,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+  },
+  metric: {
+    flex: 1,
   },
   barTrack: {
-    flex: 1,
-    height: 8,
+    height: 7,
     borderRadius: 999,
     overflow: "hidden",
+    marginTop: 6,
   },
   barFill: {
     height: "100%",
     borderRadius: 999,
   },
   note: {
-    marginTop: 8,
-    fontSize: 12,
+    marginTop: 12,
   },
 });

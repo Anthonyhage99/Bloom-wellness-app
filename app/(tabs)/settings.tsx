@@ -1,62 +1,91 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  SafeAreaView,
-  View,
-  Text,
-  Switch,
-  StyleSheet,
-  TouchableOpacity,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  TextInput,
+  View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
-import { useTheme } from "../context/ThemeContext";
-import { useAuth } from "../context/AuthContext";
+import {
+  BloomButton,
+  BloomCard,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+import { useTheme } from "@/context/ThemeContext";
+import { useAuth } from "@/context/AuthContext";
 
-// 🔑 BASE keys (match the other screens)
-const BASE_LOGS_KEY = "bloom_daily_logs";   // + _uid in Log screen
-const BASE_HABITS_KEY = "bloom_habits_v2";  // same as Home screen
+const BASE_LOGS_KEY = "bloom_daily_logs";
+const BASE_HABITS_KEY = "bloom_habits_v2";
+const REMINDERS_KEY = "bloom_reminders_enabled";
+const PROFILE_NAME_KEY = "bloom_profile_name";
+
+type StoredHabit = {
+  count?: number;
+  [key: string]: unknown;
+};
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const colors = useBloomColors();
   const { darkMode, toggleDarkMode } = useTheme();
   const { user, logout } = useAuth();
 
-  // per-user keys (fallback to base if somehow no user)
   const logsKey = user ? `${BASE_LOGS_KEY}_${user.uid}` : BASE_LOGS_KEY;
   const habitsKey = user ? `${BASE_HABITS_KEY}_${user.uid}` : BASE_HABITS_KEY;
+  const remindersKey = user ? `${REMINDERS_KEY}_${user.uid}` : REMINDERS_KEY;
 
-  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [profileName, setProfileName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
-  const containerStyle = [styles.container, darkMode && styles.containerDark];
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(remindersKey);
+        const savedName = await AsyncStorage.getItem(PROFILE_NAME_KEY);
+        setRemindersEnabled(saved === "true");
+        if (savedName) setProfileName(savedName);
+      } catch (e) {
+        console.log("Error loading reminder preference", e);
+      }
+    })();
+  }, [remindersKey]);
 
-  const cardBackground = darkMode ? "#1E1E1E" : "#FFFFFF";
-  const mainText = darkMode ? "#FFFFFF" : "#23404E";
-  const subText = darkMode ? "#A0A0A0" : "#66737D";
-  const dangerText = darkMode ? "#FF8A80" : "#D32F2F";
+  async function updateReminders(next: boolean) {
+    setRemindersEnabled(next);
+    await AsyncStorage.setItem(remindersKey, String(next));
+    setStatus(next ? "Reminder preference saved." : "Reminders turned off.");
+  }
 
-  // 🧹 Clear ALL daily logs (for this user)
+  async function saveProfileName() {
+    await AsyncStorage.setItem(PROFILE_NAME_KEY, profileName.trim() || "friend");
+    setStatus("Profile name saved.");
+  }
+
   async function handleClearLogs() {
-    Alert.alert("Clear daily logs?", "This will delete all saved daily logs.", [
+    Alert.alert("Clear daily logs?", "This will delete all saved daily check-ins.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Clear",
         style: "destructive",
         onPress: async () => {
           await AsyncStorage.removeItem(logsKey);
-          setStatus("🧹 All daily logs cleared.");
+          setStatus("Daily logs cleared.");
         },
       },
     ]);
   }
 
-  // 🔁 Reset today's habits = set count = 0 for each habit
   async function handleResetHabits() {
     Alert.alert(
-      "Reset habits today?",
-      "This will reset today's habit counters (count = 0).",
+      "Reset today's habits?",
+      "This will set every habit count back to zero.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -66,17 +95,16 @@ export default function SettingsScreen() {
             try {
               const raw = await AsyncStorage.getItem(habitsKey);
               if (raw) {
-                const parsed = JSON.parse(raw) as any[];
-                const reset = parsed.map((h) => ({
-                  ...h,
-                  count: 0, // ⬅️ THIS is what Home uses
-                }));
-                await AsyncStorage.setItem(habitsKey, JSON.stringify(reset));
+                const parsed = JSON.parse(raw) as StoredHabit[];
+                await AsyncStorage.setItem(
+                  habitsKey,
+                  JSON.stringify(parsed.map((h) => ({ ...h, count: 0 })))
+                );
               }
-              setStatus("🔁 Habits for today reset.");
+              setStatus("Habit counters reset.");
             } catch (e) {
               console.log("Error resetting habits", e);
-              setStatus("⚠️ Could not reset habits.");
+              setStatus("Could not reset habits.");
             }
           },
         },
@@ -84,11 +112,10 @@ export default function SettingsScreen() {
     );
   }
 
-  // 🌪 Clear logs + reset today's habits
   async function handleResetAllToday() {
     Alert.alert(
       "Reset all progress today?",
-      "This will clear logs and reset today's habit counters.",
+      "This clears check-ins and resets today's habit counters.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -96,24 +123,19 @@ export default function SettingsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              // clear logs for this user
               await AsyncStorage.removeItem(logsKey);
-
-              // reset habits for this user
               const raw = await AsyncStorage.getItem(habitsKey);
               if (raw) {
-                const parsed = JSON.parse(raw) as any[];
-                const reset = parsed.map((h) => ({
-                  ...h,
-                  count: 0,
-                }));
-                await AsyncStorage.setItem(habitsKey, JSON.stringify(reset));
+                const parsed = JSON.parse(raw) as StoredHabit[];
+                await AsyncStorage.setItem(
+                  habitsKey,
+                  JSON.stringify(parsed.map((h) => ({ ...h, count: 0 })))
+                );
               }
-
-              setStatus("🌪 All progress for today reset (logs + habits).");
+              setStatus("Today's progress reset.");
             } catch (e) {
               console.log("Error resetting everything", e);
-              setStatus("⚠️ Could not reset everything.");
+              setStatus("Could not reset everything.");
             }
           },
         },
@@ -127,205 +149,190 @@ export default function SettingsScreen() {
       router.replace("/(auth)/login");
     } catch (e) {
       console.log("Error logging out", e);
-      setStatus("⚠️ Could not log out. Try again.");
+      setStatus("Could not log out. Try again.");
     }
   }
 
   return (
-    <SafeAreaView style={containerStyle}>
-      <Text style={[styles.title, { color: mainText }]}>Settings ⚙️</Text>
-      <Text style={[styles.subtitle, { color: subText }]}>
-        Basic preferences for your Bloom experience.
-      </Text>
+    <BloomScreen>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <BloomText variant="hero">Your Space</BloomText>
+        <BloomText muted style={styles.subtitle}>
+          Personalize Bloom and manage your local data.
+        </BloomText>
 
-      {/* Daily reminders row */}
-      <View style={[styles.rowCard, { backgroundColor: cardBackground }]}>
-        <View style={styles.rowTextContainer}>
-          <Text style={[styles.rowTitle, { color: mainText }]}>
-            Daily reminders
-          </Text>
-          <Text style={[styles.rowSubtitle, { color: subText }]}>
-            Get a gentle nudge to log your habits.
-          </Text>
-        </View>
-        <Switch
-          value={remindersEnabled}
-          onValueChange={setRemindersEnabled}
-        />
-      </View>
+        <BloomCard style={styles.sectionCard}>
+          <BloomText variant="section">Personal touches</BloomText>
+          <BloomText variant="label" style={styles.inputLabel}>
+            Profile name
+          </BloomText>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                color: colors.text,
+              },
+            ]}
+            placeholder="Your name or nickname"
+            placeholderTextColor={colors.muted}
+            value={profileName}
+            onChangeText={setProfileName}
+          />
+          <BloomButton
+            variant="secondary"
+            style={styles.saveNameButton}
+            onPress={saveProfileName}
+          >
+            Save name
+          </BloomButton>
+          <SettingRow
+            title="Daily reminders"
+            subtitle="Save a reminder preference for future notification support."
+            value={remindersEnabled}
+            onValueChange={updateReminders}
+          />
+          <SettingRow
+            title="Dark mode"
+            subtitle="Use a calmer low-light theme."
+            value={darkMode}
+            onValueChange={toggleDarkMode}
+          />
+        </BloomCard>
 
-      {/* Dark mode row */}
-      <View style={[styles.rowCard, { backgroundColor: cardBackground }]}>
-        <View style={styles.rowTextContainer}>
-          <Text style={[styles.rowTitle, { color: mainText }]}>Dark mode</Text>
-          <Text style={[styles.rowSubtitle, { color: subText }]}>
-            Switch Bloom between light and dark themes.
-          </Text>
-        </View>
-        <Switch value={darkMode} onValueChange={toggleDarkMode} />
-      </View>
+        <BloomCard style={styles.sectionCard}>
+          <BloomText variant="section">Progress controls</BloomText>
+          <BloomText muted style={styles.sectionCopy}>
+            These actions affect only the current account on this device.
+          </BloomText>
+          <View style={styles.dangerStack}>
+            <BloomButton variant="danger" onPress={handleClearLogs}>
+              Clear daily logs
+            </BloomButton>
+            <BloomButton variant="danger" onPress={handleResetHabits}>
+              Reset habit counters
+            </BloomButton>
+            <BloomButton variant="danger" onPress={handleResetAllToday}>
+              Reset all progress today
+            </BloomButton>
+          </View>
+        </BloomCard>
 
-      {/* Data reset section */}
-      <View style={[styles.aboutCard, { backgroundColor: cardBackground }]}>
-        <Text style={[styles.aboutTitle, { color: mainText }]}>
-          Data & Progress
-        </Text>
-        <Text style={[styles.aboutText, { color: subText }]}>
-          Use these options if you want to wipe today&apos;s logs or reset your
-          daily progress.
-        </Text>
+        <BloomCard style={styles.sectionCard}>
+          <BloomText variant="section">About Bloom</BloomText>
+          <BloomText muted style={styles.sectionCopy}>
+            Bloom is a self-care habit tracker for small daily actions, quick
+            check-ins, and simple coaching prompts.
+          </BloomText>
+          <BloomText muted variant="small" style={styles.versionText}>
+            Bloom v1.0
+          </BloomText>
+        </BloomCard>
 
-        <TouchableOpacity style={styles.resetRow} onPress={handleClearLogs}>
-          <Text style={[styles.resetText, { color: dangerText }]}>
-            Clear all daily logs
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.resetRow} onPress={handleResetHabits}>
-          <Text style={[styles.resetText, { color: dangerText }]}>
-            Reset today&apos;s habit counters
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.resetRow} onPress={handleResetAllToday}>
-          <Text style={[styles.resetText, { color: dangerText }]}>
-            Reset all progress today (logs + habits)
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* About card */}
-      <View style={[styles.aboutCard, { backgroundColor: cardBackground }]}>
-        <Text style={[styles.aboutTitle, { color: mainText }]}>
-          About Bloom
-        </Text>
-        <Text style={[styles.aboutText, { color: subText }]}>
-          Bloom is a self-care habit tracker that helps you pick a few key
-          habits, track your progress, and get gentle coaching when you feel
-          stuck.
-        </Text>
-      </View>
-
-      {/* Logout at very bottom, under About Bloom */}
-      {user && (
-        <View style={[styles.logoutContainer]}>
-          <TouchableOpacity
-            style={styles.accountButtonDanger}
+        {user ? (
+          <BloomButton
+            variant="secondary"
+            style={[styles.logoutButton, { borderColor: colors.danger }]}
+            textStyle={{ color: colors.danger }}
             onPress={handleLogout}
           >
-            <Text style={styles.accountButtonDangerText}>Log Out</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+            Log out
+          </BloomButton>
+        ) : null}
 
-      {status && (
-        <Text
-          style={{
-            marginTop: 12,
-            marginHorizontal: 20,
-            fontSize: 13,
-            color: subText,
-          }}
-        >
-          {status}
-        </Text>
-      )}
-    </SafeAreaView>
+        {status ? (
+          <BloomCard muted style={styles.statusCard}>
+            <BloomText>{status}</BloomText>
+          </BloomCard>
+        ) : null}
+      </ScrollView>
+    </BloomScreen>
+  );
+}
+
+function SettingRow({
+  title,
+  subtitle,
+  value,
+  onValueChange,
+}: {
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+}) {
+  const colors = useBloomColors();
+
+  return (
+    <View style={[styles.settingRow, { borderColor: colors.border }]}>
+      <View style={styles.settingText}>
+        <BloomText variant="label">{title}</BloomText>
+        <BloomText muted variant="small">
+          {subtitle}
+        </BloomText>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: colors.border, true: colors.primarySoft }}
+        thumbColor={value ? colors.primary : colors.muted}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F7FB",
-    paddingHorizontal: 20,
-    paddingTop: 32,
-  },
-  containerDark: {
-    backgroundColor: "#000000",
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#23404E",
-    marginLeft: 16,
+  content: {
+    paddingBottom: 90,
   },
   subtitle: {
     marginTop: 4,
     marginBottom: 16,
-    color: "#66737D",
-    marginLeft: 16,
   },
-  rowCard: {
+  sectionCard: {
+    marginBottom: 14,
+  },
+  sectionCopy: {
+    marginTop: 6,
+  },
+  inputLabel: {
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  input: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+  saveNameButton: {
+    marginTop: 10,
+  },
+  settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginHorizontal: 8,
-    marginTop: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    borderTopWidth: 1,
+    paddingTop: 14,
+    marginTop: 14,
   },
-  rowTextContainer: {
+  settingText: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: 14,
   },
-  rowTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#23404E",
+  dangerStack: {
+    gap: 10,
+    marginTop: 14,
   },
-  rowSubtitle: {
-    fontSize: 13,
-    color: "#66737D",
-    marginTop: 2,
+  logoutButton: {
+    marginTop: 4,
   },
-  aboutCard: {
-    marginTop: 18,
-    marginHorizontal: 8,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  aboutTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#23404E",
-    marginBottom: 4,
-  },
-  aboutText: {
-    fontSize: 13,
-    color: "#66737D",
-  },
-  resetRow: {
+  versionText: {
     marginTop: 10,
   },
-  resetText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  logoutContainer: {
-    marginTop: 18,
-    marginHorizontal: 8,
-  },
-  accountButtonDanger: {
-    backgroundColor: "#FFFFFF",
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#D32F2F",
-  },
-  accountButtonDangerText: {
-    color: "#D32F2F",
-    fontWeight: "600",
+  statusCard: {
+    marginTop: 14,
   },
 });

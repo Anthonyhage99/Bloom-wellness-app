@@ -1,49 +1,52 @@
 import React, { useState } from "react";
 import {
-  SafeAreaView,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  TextInput,
+  View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../context/AuthContext";
-import { useTheme } from "../context/ThemeContext";
+
+import {
+  BloomButton,
+  BloomCard,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+import { useAuth } from "@/context/AuthContext";
 
 export default function SignupScreen() {
   const router = useRouter();
   const { signUp } = useAuth();
-  const { darkMode } = useTheme();
+  const colors = useBloomColors();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const bg = darkMode ? "#000" : "#F5F7FB";
-  const cardBg = darkMode ? "#111" : "#FFFFFF";
-  const textColor = darkMode ? "#FFFFFF" : "#23404E";
-  const subColor = darkMode ? "#A6A6A6" : "#66737D";
-
   async function handleSignup() {
-    if (!email || !password) {
-      Alert.alert("Missing info", "Please enter email and password.");
+    if (!email.trim() || !password) {
+      Alert.alert("Missing info", "Please enter an email and password.");
+      return;
+    }
+    if (password.length < 6) {
+      Alert.alert("Password too short", "Use at least 6 characters.");
       return;
     }
     if (password !== confirm) {
-      Alert.alert("Passwords don’t match");
+      Alert.alert("Passwords do not match", "Please re-enter your password.");
       return;
     }
 
     try {
       setLoading(true);
-      await signUp(email, password);
-      Alert.alert("Account created!", "You are now logged in.");
+      await signUp(email.trim(), password);
       router.replace("/(tabs)");
     } catch (err: any) {
-      console.log(err);
       Alert.alert("Sign up failed", err.message ?? "Please try again.");
     } finally {
       setLoading(false);
@@ -51,113 +54,135 @@ export default function SignupScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: bg }]}>
-      <View style={[styles.card, { backgroundColor: cardBg }]}>
-        <Text style={[styles.title, { color: textColor }]}>Create account 🌱</Text>
-        <Text style={[styles.subtitle, { color: subColor }]}>
-          Save your habits and logs securely across devices.
-        </Text>
+    <BloomScreen style={styles.screen}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboard}
+      >
+        <View style={styles.brandBlock}>
+          <BloomText variant="hero">Start Blooming</BloomText>
+          <BloomText muted style={styles.brandCopy}>
+            Create a private habit space for daily progress and reflection.
+          </BloomText>
+        </View>
 
-        <Text style={[styles.label, { color: textColor }]}>Email</Text>
-        <TextInput
-          style={[styles.input, { color: textColor }]}
-          placeholder="you@example.com"
-          placeholderTextColor={darkMode ? "#777" : "#999"}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
+        <BloomCard style={styles.card}>
+          <BloomText variant="title">Create account</BloomText>
+          <BloomText muted style={styles.subtitle}>
+            Your habits and logs stay separated from other accounts.
+          </BloomText>
 
-        <Text style={[styles.label, { color: textColor }]}>Password</Text>
-        <TextInput
-          style={[styles.input, { color: textColor }]}
-          placeholder="••••••••"
-          placeholderTextColor={darkMode ? "#777" : "#999"}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+          <BloomText variant="label" style={styles.label}>
+            Email
+          </BloomText>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                color: colors.text,
+              },
+            ]}
+            placeholder="you@example.com"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
 
-        <Text style={[styles.label, { color: textColor }]}>Confirm Password</Text>
-        <TextInput
-          style={[styles.input, { color: textColor }]}
-          placeholder="••••••••"
-          placeholderTextColor={darkMode ? "#777" : "#999"}
-          secureTextEntry
-          value={confirm}
-          onChangeText={setConfirm}
-        />
+          <BloomText variant="label" style={styles.label}>
+            Password
+          </BloomText>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                color: colors.text,
+              },
+            ]}
+            placeholder="At least 6 characters"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
 
-        <TouchableOpacity
-          style={[styles.button, loading && { opacity: 0.6 }]}
-          onPress={handleSignup}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Creating account…" : "Sign Up"}
-          </Text>
-        </TouchableOpacity>
+          <BloomText variant="label" style={styles.label}>
+            Confirm password
+          </BloomText>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                color: colors.text,
+              },
+            ]}
+            placeholder="Re-enter password"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            value={confirm}
+            onChangeText={setConfirm}
+          />
 
-        <TouchableOpacity onPress={() => router.replace("/(auth)/login")}>
-          <Text style={[styles.linkText, { color: subColor }]}>
-            Already have an account? <Text style={{ fontWeight: "600" }}>Log in</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          <BloomButton
+            style={styles.primaryButton}
+            onPress={handleSignup}
+            disabled={loading}
+          >
+            {loading ? "Creating account..." : "Sign up"}
+          </BloomButton>
+
+          <BloomButton
+            variant="ghost"
+            onPress={() => router.replace("/(auth)/login")}
+          >
+            I already have an account
+          </BloomButton>
+        </BloomCard>
+      </KeyboardAvoidingView>
+    </BloomScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 24,
+  screen: {
     justifyContent: "center",
   },
-  card: {
-    borderRadius: 18,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 3,
+  keyboard: {
+    width: "100%",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
+  brandBlock: {
+    marginBottom: 22,
+    paddingHorizontal: 4,
+  },
+  brandCopy: {
+    marginTop: 8,
+    maxWidth: 330,
+  },
+  card: {
+    gap: 4,
   },
   subtitle: {
-    marginTop: 4,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   label: {
     marginTop: 10,
-    marginBottom: 4,
-    fontWeight: "600",
   },
   input: {
+    minHeight: 48,
     borderWidth: 1,
-    borderColor: "#CCD6DD",
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    paddingHorizontal: 14,
+    fontSize: 15,
   },
-  button: {
-    marginTop: 14,
-    backgroundColor: "#2E7D32",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#FFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  linkText: {
-    textAlign: "center",
-    marginTop: 14,
-    fontSize: 13,
+  primaryButton: {
+    marginTop: 16,
   },
 });

@@ -1,16 +1,17 @@
 import React from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { ActivityIndicator, View } from "react-native";
 import "react-native-reanimated";
 
 import {
-  DarkTheme,
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
 
-import { BloomThemeProvider } from "./context/ThemeContext";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { BloomPalette } from "@/constants/theme";
+import { BloomThemeProvider, useTheme } from "@/context/ThemeContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -19,10 +20,22 @@ export const unstable_settings = {
 // This component decides which stack to show based on auth state
 function RootNavigator() {
   const { user, loading } = useAuth();
+  const { darkMode } = useTheme();
+  const colors = BloomPalette[darkMode ? "dark" : "light"];
 
   if (loading) {
-    // Tiny loading screen while Firebase figures out if we're logged in
-    return null;
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.background,
+        }}
+      >
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
   }
 
   return (
@@ -45,17 +58,36 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  // You can hook your own color scheme logic here if you want
-  const navTheme = DefaultTheme; // or DarkTheme
-
   return (
     <BloomThemeProvider>
       <AuthProvider>
-        <ThemeProvider value={navTheme}>
-          <RootNavigator />
-          <StatusBar style="auto" />
-        </ThemeProvider>
+        <NavigationShell />
       </AuthProvider>
     </BloomThemeProvider>
+  );
+}
+
+function NavigationShell() {
+  const { darkMode } = useTheme();
+  const colors = BloomPalette[darkMode ? "dark" : "light"];
+  const navTheme = {
+    ...DefaultTheme,
+    dark: darkMode,
+    colors: {
+      ...DefaultTheme.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.accent,
+    },
+  };
+
+  return (
+    <ThemeProvider value={navTheme}>
+      <RootNavigator />
+      <StatusBar style={darkMode ? "light" : "dark"} />
+    </ThemeProvider>
   );
 }

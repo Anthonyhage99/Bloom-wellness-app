@@ -1,12 +1,14 @@
-// app/context/ThemeContext.tsx
-
 import React, {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   ReactNode,
 } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const THEME_KEY = "bloom_dark_mode";
 
 type ThemeContextType = {
   darkMode: boolean;
@@ -22,8 +24,27 @@ type ThemeProviderProps = {
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [darkMode, setDarkMode] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(THEME_KEY);
+        if (saved !== null) {
+          setDarkMode(saved === "true");
+        }
+      } catch (e) {
+        console.log("Error loading theme preference", e);
+      }
+    })();
+  }, []);
+
   const toggleDarkMode = () => {
-    setDarkMode((prev) => !prev);
+    setDarkMode((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(THEME_KEY, String(next)).catch((e) => {
+        console.log("Error saving theme preference", e);
+      });
+      return next;
+    });
   };
 
   const value = useMemo(
@@ -37,7 +58,6 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
 
-// Alias so you can also use BloomThemeProvider if you want
 export const BloomThemeProvider = ThemeProvider;
 
 export const useTheme = () => {

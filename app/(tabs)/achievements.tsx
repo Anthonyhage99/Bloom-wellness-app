@@ -1,62 +1,52 @@
-// app/(tabs)/achievements.tsx
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-} from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from "../context/ThemeContext";
 import { useFocusEffect } from "@react-navigation/native";
 
-const HABITS_KEY = "bloom_habits_v2";
+import {
+  BloomCard,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+import { useAuth } from "@/context/AuthContext";
+
+const BASE_HABITS_KEY = "bloom_habits_v2";
+const BASE_ACTIVE_DAYS_KEY = "bloom_active_days_v1";
 
 type Habit = {
   id: string;
   name: string;
   level: 1 | 2 | 3;
   streak: number;
-  count?: number; // times done today
+  count?: number;
 };
 
 type Achievement = {
   id: string;
+  icon: string;
   title: string;
   description: string;
   points: number;
-  emoji: string;
-  isUnlocked: (habits: Habit[]) => boolean;
+  category: string;
+  isUnlocked: () => boolean;
 };
 
 export default function AchievementsScreen() {
-  const { darkMode } = useTheme();
-
-  const background = darkMode ? "#000000" : "#F5F7FB";
-  const cardBg = darkMode ? "#111111" : "#FFFFFF";
-  const titleColor = darkMode ? "#FFFFFF" : "#23404E";
-  const subtitleColor = darkMode ? "#A6A6A6" : "#66737D";
-  const borderColor = darkMode ? "#333333" : "#E0E7EF";
-  const unlockedBg = darkMode ? "#16391F" : "#E5F7EB";
-  const lockedBg = darkMode ? "#151515" : "#F4F5F7";
-  const rankTrack = darkMode ? "#222222" : "#E0E7EF";
-  const rankFill = darkMode ? "#FFC107" : "#FFA000";
+  const { user } = useAuth();
+  const colors = useBloomColors();
+  const habitsKey = user ? `${BASE_HABITS_KEY}_${user.uid}` : BASE_HABITS_KEY;
+  const activeDaysKey = user
+    ? `${BASE_ACTIVE_DAYS_KEY}_${user.uid}`
+    : BASE_ACTIVE_DAYS_KEY;
 
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [activeDays, setActiveDays] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // 🔔 toast state for new medals
   const [lastUnlocked, setLastUnlocked] = useState<Achievement | null>(null);
   const [unlockedIds, setUnlockedIds] = useState<string[]>([]);
   const [showToast, setShowToast] = useState(false);
 
-  // 🔁 Reload habits whenever Medals tab is focused
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
@@ -64,18 +54,35 @@ export default function AchievementsScreen() {
 
       (async () => {
         try {
-          const raw = await AsyncStorage.getItem(HABITS_KEY);
-          if (!isActive) return;
+          const today = new Date().toISOString().slice(0, 10);
+          const [rawHabits, rawActiveDays] = await Promise.all([
+            AsyncStorage.getItem(habitsKey),
+            AsyncStorage.getItem(activeDaysKey),
+          ]);
 
-          if (raw) {
-            const parsed: Habit[] = JSON.parse(raw);
-            setHabits(parsed);
-          } else {
-            setHabits([]);
+          const parsedHabits: Habit[] = rawHabits ? JSON.parse(rawHabits) : [];
+          const parsedActiveDays: string[] = rawActiveDays
+            ? JSON.parse(rawActiveDays)
+            : [];
+          const nextActiveDays = Array.from(
+            new Set([...parsedActiveDays, today])
+          ).sort();
+
+          await AsyncStorage.setItem(
+            activeDaysKey,
+            JSON.stringify(nextActiveDays)
+          );
+
+          if (isActive) {
+            setHabits(parsedHabits);
+            setActiveDays(nextActiveDays);
           }
         } catch (e) {
-          console.log("Error loading habits for achievements", e);
-          if (isActive) setHabits([]);
+          console.log("Error loading medals data", e);
+          if (isActive) {
+            setHabits([]);
+            setActiveDays([]);
+          }
         } finally {
           if (isActive) setLoading(false);
         }
@@ -84,494 +91,471 @@ export default function AchievementsScreen() {
       return () => {
         isActive = false;
       };
-    }, [])
+    }, [activeDaysKey, habitsKey])
   );
 
-  // Helper: get counts for specific habits
-  const getCount = (id: string) =>
-    habits.find((h) => h.id === id)?.count ?? 0;
+  const getCount = useCallback(
+    (id: string) => habits.find((h) => h.id === id)?.count ?? 0,
+    [habits]
+  );
 
   const water = getCount("l1_water");
   const sleep = getCount("l1_sleep");
   const reading = getCount("l1_reading");
   const movement = getCount("l1_movement");
   const breathing = getCount("l1_breath");
+  const meal = getCount("l2_meal");
+  const skincare = getCount("l2_skincare");
+  const plan = getCount("l2_plan");
+  const screenBreak = getCount("l2_screen_break");
+  const vitamins = getCount("l2_vitamins");
+  const skill = getCount("l3_skill");
+  const tidy = getCount("l3_tidy");
+  const freshAir = getCount("l3_fresh_air");
+  const noSocial = getCount("l3_no_social");
+  const podcast = getCount("l3_podcast");
 
-  const totalActions = habits.reduce(
-    (sum, h) => sum + (h.count ?? 0),
-    0
+  const level1Done = [water, sleep, reading, movement, breathing].filter(
+    (count) => count > 0
+  ).length;
+  const level2Done = [meal, skincare, plan, screenBreak, vitamins].filter(
+    (count) => count > 0
+  ).length;
+  const level3Done = [skill, tidy, freshAir, noSocial, podcast].filter(
+    (count) => count > 0
+  ).length;
+  const totalActions = habits.reduce((sum, h) => sum + (h.count ?? 0), 0);
+  const activeDayCount = activeDays.length;
+
+  const achievements: Achievement[] = useMemo(
+    () => [
+      {
+        id: "water_3",
+        icon: "💧",
+        title: "Hydration Starter",
+        description: "Drink water 3 times today.",
+        points: 15,
+        category: "Level 1",
+        isUnlocked: () => water >= 3,
+      },
+      {
+        id: "sleep_1",
+        icon: "🌙",
+        title: "Night Reset",
+        description: "Complete the sleep habit once today.",
+        points: 15,
+        category: "Level 1",
+        isUnlocked: () => sleep >= 1,
+      },
+      {
+        id: "level1_half",
+        icon: "🌱",
+        title: "Foundation Builder",
+        description: "Complete any 3 Level 1 habits today.",
+        points: 30,
+        category: "Level 1",
+        isUnlocked: () => level1Done >= 3,
+      },
+      {
+        id: "level1_all",
+        icon: "🌿",
+        title: "Foundation Complete",
+        description: "Complete all 5 Level 1 habits today.",
+        points: 55,
+        category: "Level 1",
+        isUnlocked: () => level1Done >= 5,
+      },
+      {
+        id: "meal_plan",
+        icon: "🥗",
+        title: "Balanced Plate",
+        description: "Complete a balanced meal and plan your day.",
+        points: 35,
+        category: "Level 2",
+        isUnlocked: () => meal >= 1 && plan >= 1,
+      },
+      {
+        id: "screen_skincare",
+        icon: "✨",
+        title: "Evening Upgrade",
+        description: "Complete skincare and a screen break today.",
+        points: 35,
+        category: "Level 2",
+        isUnlocked: () => skincare >= 1 && screenBreak >= 1,
+      },
+      {
+        id: "level2_half",
+        icon: "🥇",
+        title: "Lifestyle Upgrade",
+        description: "Complete any 3 Level 2 habits today.",
+        points: 45,
+        category: "Level 2",
+        isUnlocked: () => level2Done >= 3,
+      },
+      {
+        id: "level2_all",
+        icon: "💎",
+        title: "Level 2 Mastery",
+        description: "Complete all 5 Level 2 habits today.",
+        points: 75,
+        category: "Level 2",
+        isUnlocked: () => level2Done >= 5,
+      },
+      {
+        id: "deep_focus",
+        icon: "🎯",
+        title: "Deep Focus",
+        description: "Complete skill learning and no social media today.",
+        points: 45,
+        category: "Level 3",
+        isUnlocked: () => skill >= 1 && noSocial >= 1,
+      },
+      {
+        id: "reset_space",
+        icon: "🧹",
+        title: "Clear Space",
+        description: "Tidy your space and step outside today.",
+        points: 45,
+        category: "Level 3",
+        isUnlocked: () => tidy >= 1 && freshAir >= 1,
+      },
+      {
+        id: "level3_half",
+        icon: "🔥",
+        title: "Discipline Mode",
+        description: "Complete any 3 Level 3 habits today.",
+        points: 65,
+        category: "Level 3",
+        isUnlocked: () => level3Done >= 3,
+      },
+      {
+        id: "level3_all",
+        icon: "🏆",
+        title: "Level 3 Mastery",
+        description: "Complete all 5 Level 3 habits today.",
+        points: 100,
+        category: "Level 3",
+        isUnlocked: () => level3Done >= 5,
+      },
+      {
+        id: "all_levels_sample",
+        icon: "🌈",
+        title: "All Levels Online",
+        description: "Complete at least one habit from each level today.",
+        points: 70,
+        category: "Combo",
+        isUnlocked: () => level1Done >= 1 && level2Done >= 1 && level3Done >= 1,
+      },
+      {
+        id: "complete_10",
+        icon: "⚡",
+        title: "Ten-Habit Day",
+        description: "Complete 10 different habits today.",
+        points: 120,
+        category: "Combo",
+        isUnlocked: () => level1Done + level2Done + level3Done >= 10,
+      },
+      {
+        id: "action_25",
+        icon: "💪",
+        title: "25 Action Push",
+        description: "Do 25 total healthy actions today.",
+        points: 90,
+        category: "Challenge",
+        isUnlocked: () => totalActions >= 25,
+      },
+      {
+        id: "action_50",
+        icon: "🚀",
+        title: "50 Action Beast",
+        description: "Do 50 total healthy actions today.",
+        points: 140,
+        category: "Challenge",
+        isUnlocked: () => totalActions >= 50,
+      },
+      {
+        id: "active_3",
+        icon: "📅",
+        title: "3-Day Visitor",
+        description: "Open Bloom on 3 different days.",
+        points: 40,
+        category: "Active Days",
+        isUnlocked: () => activeDayCount >= 3,
+      },
+      {
+        id: "active_7",
+        icon: "🗓️",
+        title: "1-Week Active",
+        description: "Open Bloom on 7 different days.",
+        points: 90,
+        category: "Active Days",
+        isUnlocked: () => activeDayCount >= 7,
+      },
+      {
+        id: "active_14",
+        icon: "📈",
+        title: "2-Week Commitment",
+        description: "Open Bloom on 14 different days.",
+        points: 150,
+        category: "Active Days",
+        isUnlocked: () => activeDayCount >= 14,
+      },
+      {
+        id: "active_30",
+        icon: "👑",
+        title: "30-Day Bloom",
+        description: "Open Bloom on 30 different days.",
+        points: 250,
+        category: "Active Days",
+        isUnlocked: () => activeDayCount >= 30,
+      },
+    ],
+    [
+      activeDayCount,
+      freshAir,
+      level1Done,
+      level2Done,
+      level3Done,
+      meal,
+      noSocial,
+      plan,
+      screenBreak,
+      skincare,
+      skill,
+      sleep,
+      tidy,
+      totalActions,
+      water,
+    ]
   );
 
-  // 🎖️ Define ~20 achievements
-  const ACHIEVEMENTS: Achievement[] = [
-    // Water line
-    {
-      id: "water_1",
-      title: "First Sip 💧",
-      description: "Tap 'Drink water' at least 1 time today.",
-      points: 10,
-      emoji: "💧",
-      isUnlocked: () => water >= 1,
-    },
-    {
-      id: "water_2",
-      title: "Mini Hydrator 🧊",
-      description: "Tap 'Drink water' at least 2 times today.",
-      points: 15,
-      emoji: "🥤",
-      isUnlocked: () => water >= 2,
-    },
-    {
-      id: "water_5",
-      title: "Hydration Habit 💦",
-      description: "Tap 'Drink water' 5 times in one day.",
-      points: 20,
-      emoji: "💦",
-      isUnlocked: () => water >= 5,
-    },
-    {
-      id: "water_10",
-      title: "Water Warrior ⚔️",
-      description: "Tap 'Drink water' 10 times in one day.",
-      points: 25,
-      emoji: "🌊",
-      isUnlocked: () => water >= 10,
-    },
-    {
-      id: "water_50",
-      title: "H2O Beast Mode 🐉",
-      description: "Tap 'Drink water' 50 times in one day.",
-      points: 40,
-      emoji: "🚰",
-      isUnlocked: () => water >= 50,
-    },
+  const unlocked = achievements.filter((achievement) => achievement.isUnlocked());
+  const unlockedCount = unlocked.length;
+  const totalAchievements = achievements.length;
+  const totalPoints = unlocked.reduce((sum, achievement) => sum + achievement.points, 0);
+  const rankPercent =
+    totalAchievements === 0 ? 0 : Math.min(unlockedCount / totalAchievements, 1);
 
-    // Sleep
-    {
-      id: "sleep_1",
-      title: "Sleep Attempt 😴",
-      description: "Tap the sleep habit at least once today.",
-      points: 10,
-      emoji: "😴",
-      isUnlocked: () => sleep >= 1,
-    },
-    {
-      id: "sleep_2",
-      title: "Sleep Guardian 🌙",
-      description: "Tap the sleep habit 2+ times today.",
-      points: 20,
-      emoji: "🌙",
-      isUnlocked: () => sleep >= 2,
-    },
-
-    // Reading
-    {
-      id: "reading_1",
-      title: "Page Turner 📖",
-      description: "Tap the reading habit at least once today.",
-      points: 10,
-      emoji: "📖",
-      isUnlocked: () => reading >= 1,
-    },
-    {
-      id: "reading_3",
-      title: "Bookworm Mode 🐛",
-      description: "Tap the reading habit 3+ times today.",
-      points: 20,
-      emoji: "📚",
-      isUnlocked: () => reading >= 3,
-    },
-
-    // Movement
-    {
-      id: "movement_1",
-      title: "Moved Today 🚶‍♂️",
-      description: "Tap the movement habit at least once today.",
-      points: 10,
-      emoji: "🚶‍♂️",
-      isUnlocked: () => movement >= 1,
-    },
-    {
-      id: "movement_3",
-      title: "Athlete in Progress 🏃",
-      description: "Tap the movement habit 3+ times today.",
-      points: 20,
-      emoji: "🏃",
-      isUnlocked: () => movement >= 3,
-    },
-
-    // Breathing / mindfulness
-    {
-      id: "breathing_1",
-      title: "Breathing Space 🌬️",
-      description: "Tap the breathing habit at least once today.",
-      points: 10,
-      emoji: "🌬️",
-      isUnlocked: () => breathing >= 1,
-    },
-    {
-      id: "breathing_3",
-      title: "Zen Mode 🧘",
-      description: "Tap the breathing habit 3+ times today.",
-      points: 20,
-      emoji: "🧘",
-      isUnlocked: () => breathing >= 3,
-    },
-
-    // Combos
-    {
-      id: "combo_chill",
-      title: "Chill & Refuel 😌",
-      description: "5x water + 1x sleep habit in a day.",
-      points: 30,
-      emoji: "🛏️",
-      isUnlocked: () => water >= 5 && sleep >= 1,
-    },
-    {
-      id: "combo_balanced",
-      title: "Balanced Human 🧘",
-      description: "5x water + 1x sleep + 1x reading in a day.",
-      points: 40,
-      emoji: "⚖️",
-      isUnlocked: () => water >= 5 && sleep >= 1 && reading >= 1,
-    },
-    {
-      id: "mind_body",
-      title: "Mind–Body Sync 🧠💪",
-      description: "1x movement + 1x breathing habit in a day.",
-      points: 25,
-      emoji: "🧠",
-      isUnlocked: () => movement >= 1 && breathing >= 1,
-    },
-    {
-      id: "all_online",
-      title: "All Systems Online 🌈",
-      description: "Use water, sleep, reading, movement & breathing once.",
-      points: 50,
-      emoji: "🌈",
-      isUnlocked: () =>
-        water >= 1 &&
-        sleep >= 1 &&
-        reading >= 1 &&
-        movement >= 1 &&
-        breathing >= 1,
-    },
-
-    // Total actions
-    {
-      id: "grind_mode",
-      title: "Grind Mode 🔥",
-      description: "Do 20 total healthy actions in one day.",
-      points: 35,
-      emoji: "🔥",
-      isUnlocked: () => totalActions >= 20,
-    },
-    {
-      id: "tap_machine",
-      title: "Tap Machine 🤖",
-      description: "Do 50 total healthy actions in one day.",
-      points: 50,
-      emoji: "🤖",
-      isUnlocked: () => totalActions >= 50,
-    },
-    {
-      id: "ultra_grinder",
-      title: "Ultra Grinder 💎",
-      description: "Do 100 total healthy actions in one day.",
-      points: 70,
-      emoji: "💎",
-      isUnlocked: () => totalActions >= 100,
-    },
-  ];
-
-  const unlockedCount = ACHIEVEMENTS.filter((a) =>
-    a.isUnlocked(habits)
-  ).length;
-  const totalAchievements = ACHIEVEMENTS.length;
-
-  // 🔍 Watch for newly unlocked medals + show toast
   useEffect(() => {
     if (loading) return;
 
-    const newlyUnlocked = ACHIEVEMENTS.filter((a) =>
-      a.isUnlocked(habits)
+    const nextUnlocked = achievements.filter((achievement) =>
+      achievement.isUnlocked()
     );
-    const newIds = newlyUnlocked.map((a) => a.id);
-
-    const justUnlocked = newlyUnlocked.filter(
-      (a) => !unlockedIds.includes(a.id)
+    const newIds = nextUnlocked.map((achievement) => achievement.id);
+    const justUnlocked = nextUnlocked.filter(
+      (achievement) => !unlockedIds.includes(achievement.id)
     );
 
     setUnlockedIds(newIds);
 
     if (justUnlocked.length > 0) {
-      const first = justUnlocked[0];
-      setLastUnlocked(first);
+      setLastUnlocked(justUnlocked[0]);
       setShowToast(true);
-
-      const timeout = setTimeout(() => {
-        setShowToast(false);
-      }, 3000);
-
-      return () => clearTimeout(timeout);
     }
-  }, [habits, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [achievements, loading, unlockedIds]);
+
+  useEffect(() => {
+    if (!showToast) return;
+
+    const timeout = setTimeout(() => {
+      setShowToast(false);
+      setLastUnlocked(null);
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [showToast, lastUnlocked]);
 
   const rankInfo = useMemo(() => {
-    const ratio =
-      totalAchievements === 0 ? 0 : unlockedCount / totalAchievements;
-
-    if (unlockedCount === 0) {
+    if (unlockedCount < 3) {
       return {
-        label: "Not Healthy (yet) 😴",
-        subtitle: "Start with one tiny habit today.",
-      };
-    } else if (ratio < 0.25) {
-      return {
-        label: "Warming Up 🔥",
-        subtitle: "You’ve started. Keep stacking easy wins.",
-      };
-    } else if (ratio < 0.5) {
-      return {
-        label: "Getting Healthier 💪",
-        subtitle: "Your healthy actions are adding up.",
-      };
-    } else if (ratio < 0.75) {
-      return {
-        label: "Blooming Healthy 🌱",
-        subtitle: "Your habits are starting to look serious.",
-      };
-    } else if (ratio < 1) {
-      return {
-        label: "Almost Super Healthy ⭐",
-        subtitle: "Just a few more medals to max out.",
-      };
-    } else {
-      return {
-        label: "Super Healthy 🏆",
-        subtitle: "You unlocked every medal. Elite wellness status.",
+        label: "Very Unhealthy",
+        subtitle: "Start with a few small wins to move up.",
       };
     }
-  }, [unlockedCount, totalAchievements]);
+    if (unlockedCount < 6) {
+      return {
+        label: "Unhealthy",
+        subtitle: "You are building awareness. Keep stacking basics.",
+      };
+    }
+    if (unlockedCount < 10) {
+      return {
+        label: "Getting Healthier",
+        subtitle: "Your routine is starting to look consistent.",
+      };
+    }
+    if (unlockedCount < 14) {
+      return {
+        label: "Healthy",
+        subtitle: "You are completing habits across multiple levels.",
+      };
+    }
+    if (unlockedCount < 18) {
+      return {
+        label: "Very Healthy",
+        subtitle: "Your habits show strong daily discipline.",
+      };
+    }
+    return {
+      label: "Super Healthy",
+      subtitle: "You are close to maxing out Bloom's challenge system.",
+    };
+  }, [unlockedCount]);
 
-  const rankPercent =
-    totalAchievements === 0 ? 0 : Math.min(unlockedCount / totalAchievements, 1);
+  const nextRankInfo = useMemo(() => {
+    const rankSteps = [
+      { label: "Unhealthy", medals: 3 },
+      { label: "Getting Healthier", medals: 6 },
+      { label: "Healthy", medals: 10 },
+      { label: "Very Healthy", medals: 14 },
+      { label: "Super Healthy", medals: 18 },
+    ];
+    const next = rankSteps.find((step) => unlockedCount < step.medals);
+
+    return next
+      ? { label: next.label, remaining: next.medals - unlockedCount }
+      : { label: "Max rank reached", remaining: 0 };
+  }, [unlockedCount]);
 
   const renderAchievement = ({ item }: { item: Achievement }) => {
-    const unlocked = item.isUnlocked(habits);
+    const isUnlocked = item.isUnlocked();
 
     return (
-      <View
+      <BloomCard
         style={[
           styles.achievementCard,
           {
-            backgroundColor: unlocked ? unlockedBg : lockedBg,
-            borderColor: borderColor,
-            opacity: unlocked ? 1 : 0.6,
+            backgroundColor: isUnlocked ? colors.primarySoft : colors.surface,
+            opacity: isUnlocked ? 1 : 0.72,
           },
         ]}
       >
         <View style={styles.achievementHeader}>
-          <Text style={styles.achievementEmoji}>{item.emoji}</Text>
-          <Text
+          <View
             style={[
-              styles.achievementTitle,
-              { color: titleColor },
+              styles.medalMark,
+              { backgroundColor: isUnlocked ? colors.primary : colors.surfaceMuted },
             ]}
           >
-            {item.title}
-          </Text>
+            <Text style={[styles.medalIcon, { opacity: isUnlocked ? 1 : 0.55 }]}>
+              {item.icon}
+            </Text>
+          </View>
+          <View style={styles.achievementText}>
+            <BloomText variant="section">{item.title}</BloomText>
+            <BloomText muted variant="small">
+              {item.category} | {item.points} pts
+            </BloomText>
+          </View>
         </View>
-
-        <Text
-          style={[
-            styles.achievementDescription,
-            { color: subtitleColor },
-          ]}
-        >
-          {item.description}
-        </Text>
-
-        <View style={styles.achievementFooter}>
-          <Text
-            style={[
-              styles.pointsText,
-              { color: subtitleColor },
-            ]}
-          >
-            {item.points} pts
-          </Text>
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: "600",
-              color: unlocked ? "#4CAF50" : subtitleColor,
-            }}
-          >
-            {unlocked ? "Unlocked ✅" : "Locked 🔒"}
-          </Text>
-        </View>
-      </View>
+        <BloomText muted style={styles.description}>
+          {isUnlocked ? item.description : `Hint: ${item.description}`}
+        </BloomText>
+      </BloomCard>
     );
   };
 
-  const showEmpty = !loading && habits.length === 0;
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      {/* 🏅 Toast for new medal – at bottom above tab bar */}
-      {showToast && lastUnlocked && (
-        <View
-          style={[
-            styles.toast,
-            { backgroundColor: darkMode ? "#16391F" : "#E6F7EB" },
-          ]}
-        >
-          <Text style={[styles.toastTitle, { color: titleColor }]}>
-            🏅 New medal unlocked!
-          </Text>
-          <Text style={[styles.toastText, { color: subtitleColor }]}>
-            {lastUnlocked.emoji} {lastUnlocked.title}
-          </Text>
-        </View>
-      )}
+    <BloomScreen>
+      {showToast && lastUnlocked ? (
+        <BloomCard muted style={styles.toast}>
+          <BloomText variant="label">Mini celebration</BloomText>
+          <BloomText>New medal unlocked: {lastUnlocked.title}</BloomText>
+        </BloomCard>
+      ) : null}
 
       <FlatList
-        data={ACHIEVEMENTS}
+        data={achievements}
         keyExtractor={(item) => item.id}
         renderItem={renderAchievement}
-        contentContainerStyle={{
-          flexGrow: 1,
-          paddingHorizontal: 20,
-          paddingTop: 32,
-          paddingBottom: 40,
-        }}
+        showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          <View style={{ marginBottom: 16 }}>
-            {/* TOP RANK BAR */}
-            <View
-              style={[
-                styles.rankCard,
-                { backgroundColor: cardBg, borderColor },
-              ]}
-            >
-              <Text style={[styles.rankLabel, { color: titleColor }]}>
-                Health Rank
-              </Text>
-              <Text
-                style={[
-                  styles.rankTitle,
-                  { color: titleColor },
-                ]}
-              >
+          <View>
+            <BloomText variant="hero">Your Wins</BloomText>
+            <BloomText muted style={styles.subtitle}>
+              Challenges, ranks, and small proof that you showed up.
+            </BloomText>
+
+            <BloomCard style={styles.rankCard}>
+              <BloomText variant="label" muted>
+                Wellness rank
+              </BloomText>
+              <BloomText variant="title" style={styles.rankTitle}>
                 {rankInfo.label}
-              </Text>
-              <Text
-                style={[
-                  styles.rankSubtitle,
-                  { color: subtitleColor },
-                ]}
-              >
-                {rankInfo.subtitle}
-              </Text>
+              </BloomText>
+              <BloomText muted>{rankInfo.subtitle}</BloomText>
 
-              <View style={styles.rankProgressRow}>
-                <Text
-                  style={[
-                    styles.rankProgressText,
-                    { color: subtitleColor },
-                  ]}
-                >
-                  Medals: {unlockedCount}/{totalAchievements}
-                </Text>
+              <View style={styles.rankStats}>
+                <BloomText variant="label">
+                  {unlockedCount}/{totalAchievements} medals
+                </BloomText>
+                <BloomText variant="label">{totalPoints} pts</BloomText>
               </View>
-
-              <View
-                style={[
-                  styles.rankTrack,
-                  { backgroundColor: rankTrack },
-                ]}
-              >
+              <View style={[styles.rankTrack, { backgroundColor: colors.surfaceMuted }]}>
                 <View
                   style={[
                     styles.rankFill,
-                    {
-                      width: `${rankPercent * 100}%`,
-                      backgroundColor: rankFill,
-                    },
+                    { width: `${rankPercent * 100}%`, backgroundColor: colors.accent },
                   ]}
                 />
               </View>
-            </View>
+              <BloomText muted variant="small" style={styles.activeDaysText}>
+                Active days: {activeDayCount}
+              </BloomText>
+              <BloomText muted variant="small" style={styles.activeDaysText}>
+                {nextRankInfo.remaining === 0
+                  ? "You reached the highest health rank."
+                  : `${nextRankInfo.remaining} more medals until ${nextRankInfo.label}.`}
+              </BloomText>
+            </BloomCard>
 
-            {showEmpty && (
-              <Text
-                style={{
-                  marginTop: 8,
-                  marginHorizontal: 4,
-                  fontSize: 13,
-                  color: subtitleColor,
-                }}
-              >
-                No habit data yet. Start tapping habits on the Home tab to begin
-                unlocking medals.
-              </Text>
+            {loading ? (
+              <BloomText muted style={styles.loadingText}>
+                Loading medals...
+              </BloomText>
+            ) : habits.length === 0 ? (
+              <BloomCard muted style={styles.emptyCard}>
+                <BloomText variant="section">No habit data yet</BloomText>
+                <BloomText muted>
+                  Tap habits on Home to begin unlocking level medals.
+                </BloomText>
+              </BloomCard>
+            ) : (
+              <BloomText variant="section" style={styles.sectionHeading}>
+                Today&apos;s challenges
+              </BloomText>
             )}
-
-            <Text
-              style={{
-                marginTop: 16,
-                marginLeft: 4,
-                marginBottom: 8,
-                fontSize: 16,
-                fontWeight: "600",
-                color: titleColor,
-              }}
-            >
-              Daily Medals 🎖️
-            </Text>
           </View>
         }
+        contentContainerStyle={styles.content}
       />
-    </SafeAreaView>
+    </BloomScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  content: {
+    paddingBottom: 90,
+  },
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 16,
   },
   rankCard: {
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-  },
-  rankLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: 16,
   },
   rankTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 4,
+    marginTop: 4,
   },
-  rankSubtitle: {
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  rankProgressRow: {
+  rankStats: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 6,
-  },
-  rankProgressText: {
-    fontSize: 12,
-    fontWeight: "500",
+    marginTop: 14,
+    marginBottom: 8,
   },
   rankTrack: {
-    height: 8,
+    height: 9,
     borderRadius: 999,
     overflow: "hidden",
   },
@@ -579,59 +563,47 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 999,
   },
+  activeDaysText: {
+    marginTop: 8,
+  },
+  sectionHeading: {
+    marginBottom: 2,
+  },
+  loadingText: {
+    marginTop: 12,
+  },
+  emptyCard: {
+    marginBottom: 12,
+  },
   achievementCard: {
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    marginBottom: 10,
+    marginTop: 10,
   },
   achievementHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
   },
-  achievementEmoji: {
-    fontSize: 20,
-    marginRight: 6,
-  },
-  achievementTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  achievementDescription: {
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  achievementFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  medalMark: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
-  pointsText: {
-    fontSize: 12,
-    fontWeight: "500",
+  medalIcon: {
+    fontSize: 20,
+  },
+  achievementText: {
+    flex: 1,
+  },
+  description: {
+    marginTop: 10,
   },
   toast: {
     position: "absolute",
-    bottom: 70, // 👈 just above bottom tabs
+    bottom: 78,
     left: 20,
     right: 20,
     zIndex: 20,
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  toastTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  toastText: {
-    fontSize: 13,
   },
 });

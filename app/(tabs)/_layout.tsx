@@ -4,23 +4,32 @@ import React from "react";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { Colors } from "@/constants/theme";
+import { BloomPalette, Colors } from "@/constants/theme";
 
-import { useTheme } from "../context/ThemeContext";
+import { useTheme } from "@/context/ThemeContext";
 
 export default function TabLayout() {
   const { darkMode } = useTheme();
   const tint = Colors[darkMode ? "dark" : "light"].tint;
+  const colors = BloomPalette[darkMode ? "dark" : "light"];
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: tint,
+        tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: {
-          backgroundColor: darkMode ? "#000000" : "#FFFFFF",
-          borderTopColor: darkMode ? "#222222" : "#E0E0E0",
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height: 64,
+          paddingTop: 6,
+          paddingBottom: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "700",
         },
       }}
     >
@@ -39,7 +48,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="ai"
         options={{
-          title: "AI",
+          title: "AI Coach",
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="brain.head.profile" color={color} />
           ),

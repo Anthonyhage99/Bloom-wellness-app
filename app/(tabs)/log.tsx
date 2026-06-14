@@ -1,20 +1,26 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
   Alert,
   Keyboard,
-  TouchableWithoutFeedback,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useTheme } from "../context/ThemeContext";
-import { useAuth } from "../context/AuthContext";
 
-const LOGS_KEY = "bloom_daily_logs"; // fallback if somehow no user
+import {
+  BloomButton,
+  BloomCard,
+  BloomChip,
+  BloomScreen,
+  BloomText,
+  useBloomColors,
+} from "@/components/bloom-ui";
+import { useAuth } from "@/context/AuthContext";
+
+const BASE_LOGS_KEY = "bloom_daily_logs";
+const SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 type DayLog = {
   id: string;
@@ -26,21 +32,9 @@ type DayLog = {
 };
 
 export default function LogScreen() {
-  const { darkMode } = useTheme();
   const { user } = useAuth();
-
-  // 🔑 per-user key (so each account has its own logs)
-  const logsKey = user ? `bloom_daily_logs_${user.uid}` : LOGS_KEY;
-
-  const background = darkMode ? "#000000" : "#F5F7FB";
-  const cardBg = darkMode ? "#111111" : "#FFFFFF";
-  const titleColor = darkMode ? "#FFFFFF" : "#23404E";
-  const subtitleColor = darkMode ? "#A6A6A6" : "#66737D";
-  const inputBorder = darkMode ? "#444444" : "#CCD6DD";
-  const inputText = darkMode ? "#EEEEEE" : "#333333";
-  const placeholderColor = darkMode ? "#777777" : "#999999";
-  const resetBorder = "#D32F2F";
-  const resetText = darkMode ? "#FF6F6F" : "#D32F2F";
+  const colors = useBloomColors();
+  const logsKey = user ? `${BASE_LOGS_KEY}_${user.uid}` : BASE_LOGS_KEY;
 
   const [mood, setMood] = useState("");
   const [energy, setEnergy] = useState("");
@@ -49,16 +43,11 @@ export default function LogScreen() {
   const [status, setStatus] = useState("");
   const [logs, setLogs] = useState<DayLog[]>([]);
 
-  // Load logs whenever the active user (and thus logsKey) changes
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(logsKey);
-        if (raw) {
-          setLogs(JSON.parse(raw));
-        } else {
-          setLogs([]);
-        }
+        setLogs(raw ? JSON.parse(raw) : []);
       } catch (e) {
         console.log("Error loading logs", e);
         setLogs([]);
@@ -69,171 +58,166 @@ export default function LogScreen() {
   async function saveLog() {
     Keyboard.dismiss();
 
-    const today = new Date().toISOString().slice(0, 10);
+    if (!mood || !energy || !stress) {
+      Alert.alert("Finish your check-in", "Choose mood, energy, and stress scores.");
+      return;
+    }
 
+    const today = new Date().toISOString().slice(0, 10);
     const newLog: DayLog = {
-      id: today + "_" + Date.now(),
+      id: `${today}_${Date.now()}`,
       date: today,
       mood,
       energy,
       stress,
-      note,
+      note: note.trim(),
     };
 
     const updated = [newLog, ...logs];
     setLogs(updated);
     await AsyncStorage.setItem(logsKey, JSON.stringify(updated));
 
-    setStatus("✅ Daily log saved!");
+    setStatus(
+      `Saved: Mood ${mood}/10 (${scoreLabel(Number(mood))}), Energy ${energy}/10 (${scoreLabel(Number(energy))}), Stress ${stress}/10 (${scoreLabel(Number(stress))}).`
+    );
     setMood("");
     setEnergy("");
     setStress("");
     setNote("");
   }
 
-  async function clearLogs() {
-    Alert.alert("Reset all logs?", "This will delete all logs forever.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reset",
-        style: "destructive",
-        onPress: async () => {
-          await AsyncStorage.removeItem(logsKey);
-          setLogs([]);
-          setStatus("🧹 All logs cleared.");
-        },
-      },
-    ]);
+  function ScoreRow({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: string;
+    onChange: (next: string) => void;
+  }) {
+    return (
+      <View style={styles.scoreBlock}>
+        <View style={styles.scoreHeader}>
+          <BloomText variant="label">{label}</BloomText>
+          <BloomText muted variant="small">
+            {value ? `${value}/10 - ${scoreLabel(Number(value))}` : "Choose"}
+          </BloomText>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.scoreRow}>
+            {SCORES.map((score) => (
+              <BloomChip
+                key={score}
+                label={String(score)}
+                active={value === String(score)}
+                onPress={() => onChange(String(score))}
+                style={styles.scoreChip}
+              />
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-          <Text style={[styles.title, { color: titleColor }]}>Daily Log 📝</Text>
-          <Text style={[styles.subtitle, { color: subtitleColor }]}>
-            Track how you feel today.
-          </Text>
+    <BloomScreen>
+      <ScrollView
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+      >
+        <BloomText variant="hero">How are you feeling?</BloomText>
+        <BloomText muted style={styles.subtitle}>
+          A quick check-in helps you notice your patterns.
+        </BloomText>
 
-          {/* MOOD */}
-          <Text style={[styles.label, { color: titleColor }]}>Mood (1–10)</Text>
+        <BloomCard>
+          <ScoreRow label="Mood" value={mood} onChange={setMood} />
+          <ScoreRow label="Energy" value={energy} onChange={setEnergy} />
+          <ScoreRow label="Stress" value={stress} onChange={setStress} />
+
+          <BloomText variant="label" style={styles.noteLabel}>
+            Notes
+          </BloomText>
           <TextInput
             style={[
-              styles.input,
-              { borderColor: inputBorder, backgroundColor: cardBg, color: inputText },
-            ]}
-            placeholder="e.g., 7"
-            placeholderTextColor={placeholderColor}
-            keyboardType="numeric"
-            value={mood}
-            onChangeText={setMood}
-            returnKeyType="next"
-          />
-
-          {/* ENERGY */}
-          <Text style={[styles.label, { color: titleColor }]}>Energy (1–10)</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { borderColor: inputBorder, backgroundColor: cardBg, color: inputText },
-            ]}
-            placeholder="e.g., 6"
-            placeholderTextColor={placeholderColor}
-            keyboardType="numeric"
-            value={energy}
-            onChangeText={setEnergy}
-            returnKeyType="next"
-          />
-
-          {/* STRESS */}
-          <Text style={[styles.label, { color: titleColor }]}>Stress (1–10)</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { borderColor: inputBorder, backgroundColor: cardBg, color: inputText },
-            ]}
-            placeholder="e.g., 4"
-            placeholderTextColor={placeholderColor}
-            keyboardType="numeric"
-            value={stress}
-            onChangeText={setStress}
-            returnKeyType="next"
-          />
-
-          {/* NOTES */}
-          <Text style={[styles.label, { color: titleColor }]}>Notes</Text>
-          <TextInput
-            style={[
-              styles.input,
+              styles.noteInput,
               {
-                borderColor: inputBorder,
-                backgroundColor: cardBg,
-                color: inputText,
-                minHeight: 80,
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                color: colors.text,
               },
             ]}
-            placeholder="Anything that affected your day..."
-            placeholderTextColor={placeholderColor}
+            placeholder="What shaped your day?"
+            placeholderTextColor={colors.muted}
             multiline
             textAlignVertical="top"
             value={note}
             onChangeText={setNote}
-            returnKeyType="done"
-            blurOnSubmit
-            onSubmitEditing={Keyboard.dismiss}
           />
 
-          <TouchableOpacity style={styles.button} onPress={saveLog}>
-            <Text style={styles.buttonText}>Save Log</Text>
-          </TouchableOpacity>
+          <BloomButton style={styles.saveButton} onPress={saveLog}>
+            Save my check-in
+          </BloomButton>
+        </BloomCard>
 
-          <TouchableOpacity
-            style={[styles.resetButton, { borderColor: resetBorder, backgroundColor: cardBg }]}
-            onPress={clearLogs}
-          >
-            <Text style={[styles.resetButtonText, { color: resetText }]}>
-              Reset / Clear All Logs
-            </Text>
-          </TouchableOpacity>
-
-          {status !== "" && (
-            <Text style={[styles.status, { color: titleColor }]}>{status}</Text>
-          )}
-        </ScrollView>
-      </TouchableWithoutFeedback>
-    </SafeAreaView>
+        {status ? (
+          <BloomCard muted style={styles.statusCard}>
+            <BloomText>{status}</BloomText>
+          </BloomCard>
+        ) : null}
+      </ScrollView>
+    </BloomScreen>
   );
 }
 
+function scoreLabel(value: number) {
+  if (value <= 3) return "low";
+  if (value <= 7) return "medium";
+  return "high";
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 32 },
-  title: { fontSize: 26, fontWeight: "700", marginLeft: 16 },
-  subtitle: { marginTop: 4, marginBottom: 16, marginLeft: 16 },
-  label: { marginTop: 10, marginLeft: 8, marginBottom: 4, fontWeight: "600" },
-  input: {
+  content: {
+    paddingBottom: 90,
+  },
+  subtitle: {
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  scoreBlock: {
+    marginBottom: 16,
+  },
+  scoreHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  scoreRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  scoreChip: {
+    minWidth: 38,
+  },
+  noteLabel: {
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  noteInput: {
+    minHeight: 104,
     borderWidth: 1,
     borderRadius: 14,
     padding: 14,
-    marginHorizontal: 8,
-    marginBottom: 12,
+    fontSize: 15,
+    lineHeight: 21,
   },
-  button: {
-    marginTop: 18,
-    marginHorizontal: 8,
-    backgroundColor: "#2E7D32",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
+  saveButton: {
+    marginTop: 16,
   },
-  buttonText: { color: "white", fontSize: 16, fontWeight: "600" },
-  resetButton: {
-    borderWidth: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 12,
-    marginHorizontal: 8,
-    alignItems: "center",
+  statusCard: {
+    marginTop: 14,
   },
-  resetButtonText: { fontWeight: "600" },
-  status: { marginTop: 12, marginLeft: 8, fontWeight: "500" },
 });
